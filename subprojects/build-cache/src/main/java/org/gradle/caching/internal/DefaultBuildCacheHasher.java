@@ -21,6 +21,9 @@ import com.google.common.hash.HashCode;
 import com.google.common.hash.Hasher;
 import com.google.common.hash.Hashing;
 
+import java.util.Queue;
+import java.util.concurrent.ArrayBlockingQueue;
+
 /**
  * A hasher used for build cache keys.
  *
@@ -28,6 +31,7 @@ import com.google.common.hash.Hashing;
  * hasher (see this <a href="http://crypto.stackexchange.com/a/10065">answer</a> on stackexchange).
  */
 public class DefaultBuildCacheHasher implements BuildCacheHasher {
+    private final Queue<byte[]> buffers = new ArrayBlockingQueue<byte[]>(16);
     private final Hasher hasher = Hashing.md5().newHasher();
 
     @Override
@@ -54,7 +58,10 @@ public class DefaultBuildCacheHasher implements BuildCacheHasher {
     @Override
     public BuildCacheHasher putHash(HashCode hashCode) {
         hasher.putInt(hashCode.bits() / 8);
-        hasher.putBytes(hashCode.asBytes());
+        byte[] buffer = takeBuffer();
+        hashCode.writeBytesTo(buffer, 0, Integer.MAX_VALUE);
+        hasher.putBytes(buffer);
+        returnBuffer(buffer);
         return this;
     }
 
@@ -102,5 +109,18 @@ public class DefaultBuildCacheHasher implements BuildCacheHasher {
     @Override
     public HashCode hash() {
         return hasher.hash();
+    }
+
+    private void returnBuffer(byte[] buffer) {
+        // Retain buffer if there is capacity in the queue, otherwise discard
+        buffers.offer(buffer);
+    }
+
+    private byte[] takeBuffer() {
+        byte[] buffer = buffers.poll();
+        if (buffer == null) {
+            buffer = new byte[16];
+        }
+        return buffer;
     }
 }
